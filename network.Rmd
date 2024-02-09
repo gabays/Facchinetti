@@ -1,0 +1,522 @@
+---
+title: "Facchinetti's documentation"
+author: "Simon Gabay, Maddalena Zaglio, Juan Barrios"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: pygments
+    toc: true
+    toc_float:
+      toc_collapsed: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+## global options
+knitr::opts_chunk$set(cache = TRUE)
+```
+
+This notebook is inspired from the following notebooks:
+
+```{bibtex}
+@manual{schweinberger2023coll,
+  author = {Schweinberger, Martin},
+  title = {Analyzing Co-Occurrences and Collocations in R},
+  note = {https://ladal.edu.au/coll.html},
+  year = {2023},
+  organization = {The University of Queensland, Australia. School of Languages and Cultures},
+  address = {Brisbane},
+  edition = {2023.05.31}
+}
+```
+
+```{bibtex}
+@manual{niekler2017cooc,
+  author = {Niekler, Andreas and Wiedemann, Gregor},
+  title = {Co-occurrence analysis},
+  note = {https://nballier.github.io/tm4ss.github.io/Tutorial_5_Co-occurrence.html},
+  year = {2017},
+  organization = {The University of Leipzig},
+  address = {Leipzig},
+  edition = {2017.09.11}
+}
+```
+
+## Setup
+
+```{r, results=FALSE, message=FALSE, warning=FALSE, include = FALSE}
+setwd("/Users/gabays/github/etudiants/Maddalena")
+```
+
+### Load packages
+
+We install all the packages
+
+```{r, results=FALSE, message=FALSE, warning=FALSE}
+# set options
+options(stringsAsFactors = F)
+options(scipen = 999)
+options(max.print=1000)
+# install packages
+install.packages("FactoMineR", repos = "http://cran.us.r-project.org")
+install.packages("factoextra", repos = "http://cran.us.r-project.org")
+install.packages("flextable", repos = "http://cran.us.r-project.org")
+install.packages("GGally", repos = "http://cran.us.r-project.org")
+install.packages("ggdendro", repos = "http://cran.us.r-project.org")
+install.packages("igraph", repos = "http://cran.us.r-project.org")
+install.packages("network", repos = "http://cran.us.r-project.org")
+install.packages("Matrix", repos = "http://cran.us.r-project.org")
+install.packages("quanteda", repos = "http://cran.us.r-project.org")
+install.packages("quanteda.textstats", repos = "http://cran.us.r-project.org")
+install.packages("quanteda.textplots", repos = "http://cran.us.r-project.org")
+install.packages("dplyr", repos = "http://cran.us.r-project.org")
+install.packages("stringr", repos = "http://cran.us.r-project.org")
+install.packages("tm", repos = "http://cran.us.r-project.org")
+install.packages("sna", repos = "http://cran.us.r-project.org")
+install.packages("magrittr", repos = "http://cran.us.r-project.org")
+install.packages("stopwords", repos = "http://cran.us.r-project.org")
+install.packages("udpipe", repos = "http://cran.us.r-project.org")
+install.packages("sbo", repos = "http://cran.us.r-project.org")
+install.packages("infotheo", repos = "http://cran.us.r-project.org")
+install.packages(
+    "https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz",
+    repos=NULL,
+    type="source"
+)
+install.packages("tidytext", repos = "http://cran.us.r-project.org")
+# install klippy for copy-to-clipboard button in code chunks
+install.packages("remotes", repos = "http://cran.us.r-project.org")
+remotes::install_github("rlesur/klippy")
+```
+
+We load all the packages
+
+```{r, results=FALSE, message=FALSE, warning=FALSE}
+# activate klippy for copy-to-clipboard button
+remotes::install_github("rlesur/klippy")
+klippy::klippy()
+library(FactoMineR)
+library(factoextra)
+library(flextable)
+library(ggdendro)
+library(igraph)
+library(network)
+library(Matrix)
+library(quanteda)
+library(quanteda.textstats)
+library(quanteda.textplots)
+library(dplyr)
+library(stringr)
+library(tm)
+library(sna)
+library(magrittr)
+library(stopwords)
+library(GGally)
+library(udpipe)
+library(infotheo)
+```
+
+### Loading data
+
+```{r}
+# load raw data
+provvidenza <- paste(scan("data/final/provvidenza_clean_2.txt", what="character", sep="", fileEncoding="UTF-8"),collapse=" ")
+```
+
+## Collocations
+
+### Loading the udpipe model
+
+There is a list here if needed: http://hdl.handle.net/11234/1-3131. Adjust the name if needed
+
+```{r}
+udmodel <- udpipe_load_model(file = 'models/italian-isdt-ud-2.5-191206.udpipe')
+```
+
+Now I lemmatise the text:
+
+```{r}
+textLemmat <- ""
+#apply the model
+x <- udpipe_annotate(udmodel, x = provvidenza)
+#return the result as dataframe
+x <- as.data.frame(x)
+#Now I extract the column of the lemma
+ textLemmat <-x$lemma[1]
+ for(i in 2:length(x$token_id)){
+  if(x$sentence_id[i] != x$sentence_id[i-1])
+    textLemmat<-paste(textLemmat, x$lemma[i], sep = " ")
+  if(is.na(x$lemma[i]))
+    next
+    textLemmat<-paste(textLemmat, x$lemma[i], sep = " ")
+ }
+provvidenza_lemmat<-textLemmat
+```
+
+### Removing stop words
+
+I download a standard list of stopwords:
+
+```{r}
+#Donner un nom au fichier que je télécharge
+mesStops="stopwords-it.csv"
+#indiquer l'URL où se trouve le document à télécharger
+stopword_enLigne = "https://raw.githubusercontent.com/stopwords-iso/stopwords-it/master/stopwords-it.txt"
+#télécharger le fichier et l'enregistrer sous le nom que je viens de lui donner
+download.file(stopword_enLigne,mesStops)
+```
+
+I can now add stopwords in the csv if needed.
+
+I now eliminate all the stopwords of my document:
+
+```{r}
+#Comme c'est un tableur, je le lis avec la fonction adéquat 
+stopword_enLigne = read.csv("stopwords-it.csv", header=FALSE, stringsAsFactors=FALSE)[,]
+provvidenza_lemmat<-removeWords(provvidenza_lemmat, stopword_enLigne)
+```
+
+### Extracting bigrams
+
+I can extract bigrams (pair of words)
+
+```{r}
+#clean corpus
+provvidenza_clean <- provvidenza_lemmat %>%
+  stringr::str_to_title()
+# tokenize corpus
+provvidenza_tokzd <- quanteda::tokens(provvidenza_clean)
+# extract bigrams
+BiGrams <- provvidenza_tokzd %>% 
+       quanteda::tokens_select(pattern = "^[A-Z]", 
+                               valuetype = "regex",
+                               case_insensitive = FALSE, 
+                               padding = TRUE) %>% 
+       quanteda.textstats::textstat_collocations(min_count = 5, tolower = FALSE)
+BiGrams
+```
+
+Or trigrams:
+
+```{r}
+TriGrams <- provvidenza_tokzd %>% 
+       quanteda::tokens_select(pattern = "^[A-Z]", 
+                               valuetype = "regex",
+                               case_insensitive = FALSE, 
+                               padding = TRUE) %>% 
+       quanteda.textstats::textstat_collocations(min_count = 3, tolower = FALSE, size=3)
+TriGrams
+```
+
+Alternative method for extracting bigrams to generate a concordance of word:
+
+```{r}
+ngram_extract <- quanteda::tokens_compound(provvidenza_tokzd, pattern = BiGrams)
+ngram_kwic <- kwic(ngram_extract, pattern = c("guerra")) %>% # chage the word here
+  as.data.frame() %>%
+  dplyr::select(-to, -from, -pattern)
+ngram_kwic
+```
+
+## Co-occurrences
+
+### Pre-processing
+
+We split the text into sentences (to create a context for the co-occurrences):
+
+```{r}
+# read in and process text
+provvidenza_sentences <- provvidenza %>%
+  #remove useless whitespaces
+  stringr::str_squish() %>%
+  sbo::tokenize_sentences(.) %>%
+  unlist() %>%
+  stringr::str_remove_all("- ") %>%
+  stringr::str_replace_all("\\W", " ") %>%
+  stringr::str_squish()
+# inspect data
+head(provvidenza_sentences)
+```
+
+Now we lemmatise the text:
+
+```{r}
+textLemmat <- ""
+increment<-1
+mybiglist <- list()
+for(sentence in provvidenza_sentences){
+  #apply the model
+  x <- udpipe_annotate(udmodel, x = sentence)
+  #return the result as dataframe
+  x <- as.data.frame(x)
+  if(nrow(x) != 0){
+    #Now I extract the column of the lemma
+    textLemmat <-x$lemma[1]
+    for(i in 2:length(x$token_id)){
+      if(!(is.na(x$lemma[i]))){
+        textLemmat<-paste(textLemmat, x$lemma[i], sep = " ")
+      }
+    }
+  }
+  increment<-increment+1
+  mybiglist[[increment]]<-textLemmat
+}
+provvidenza_sentences_lemmatised<-unlist(mybiglist)
+tail(provvidenza_sentences_lemmatised)
+```
+
+We get rid of the stopwords:
+
+```{r}
+provvidenza_sentences_lemmatised<-removeWords(provvidenza_sentences_lemmatised, stopword_enLigne)
+provvidenza_sentences_lemmatised <- provvidenza_sentences_lemmatised %>%
+  #remove useless whitespaces
+  stringr::str_squish()
+```
+
+We correct a few mistakes:
+
+```{r}
+provvidenza_sentences_lemmatised<-gsub("facchinetto", "facchinetti", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("tripolo", "tripoli", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" the ", " ", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" of ", " ", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" they ", " ", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("goo ", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("^mons ", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" mons$", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("^mons$", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("^[a-z]$", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("^[a-z] ", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" [a-z] ", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub(" [a-z]$", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("^NA ", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised<-gsub("[[:digit:]]+", "", provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised <- provvidenza_sentences_lemmatised %>%
+  #remove useless whitespaces
+  stringr::str_squish()
+```
+
+I can download the data to correct it even more:
+
+```{r}
+write.table(provvidenza_sentences_lemmatised, "provvidenza_sentences_lemmatised.txt")
+```
+
+And now I load the correcred data:
+
+```{r}
+provvidenza_sentences_lemmatised.txt <- readLines("provvidenza_sentences_lemmatised.txt", encoding="UTF-8")
+```
+
+We remove lines which are now empty:
+
+```{r}
+empty_lines = grepl('^\\s*$', provvidenza_sentences_lemmatised)
+provvidenza_sentences_lemmatised = provvidenza_sentences_lemmatised[! empty_lines]
+#provvidenza_sentences_lemmatised = paste(provvidenza_sentences_lemmatised, collapse = '\n')
+grep("^$", provvidenza_sentences_lemmatised)
+```
+
+We create a DocumentTerm Matrix (document is a sentence here):
+
+```{r}
+text_dfm <- provvidenza_sentences_lemmatised %>% 
+  quanteda::tokens(remove_punct = TRUE)  %>%
+  dfm() %>%
+  quanteda::dfm_remove(stopwords('italian'))%>%
+  quanteda::dfm_remove(c("almeno", "via")) %>%
+  quanteda::dfm_trim(min_termfreq = 10, verbose = FALSE)
+# inspect
+text_dfm[1:6, 1:6]
+```
+
+### Choosing a word
+
+We calculate co-occurrences. Let's choose a word:
+
+```{r}
+coocTerm <- "profugo"
+```
+
+#### Controlling sgnificance according to various similarity leasures
+
+We count the joint word occurrence:
+
+```{r}
+coocCounts <- t(text_dfm) %*% text_dfm
+as.matrix(coocCounts[202:205, 202:205])
+```
+We evaluate 3 different similarity measures:
+-  mutual information
+- Dice
+- Log likelihood
+
+```{r}
+k <- nrow(text_dfm)
+ki <- sum(text_dfm[, coocTerm])
+kj <- colSums(text_dfm)
+names(kj) <- colnames(text_dfm)
+kij <- coocCounts[coocTerm, ]
+########## MI: log(k*kij / (ki * kj) ########
+mutualInformationSig <- log(k * kij / (ki * kj))
+mutualInformationSig <- mutualInformationSig[order(mutualInformationSig, decreasing = TRUE)]
+
+########## DICE: 2 X&Y / X + Y ##############
+dicesig <- 2 * kij / (ki + kj)
+dicesig <- dicesig[order(dicesig, decreasing=TRUE)]
+
+########## Log Likelihood ###################
+logsig <- 2 * ((k * log(k)) - (ki * log(ki)) - (kj * log(kj)) + (kij * log(kij)) 
+               + (k - ki - kj + kij) * log(k - ki - kj + kij) 
+               + (ki - kij) * log(ki - kij) + (kj - kij) * log(kj - kij) 
+               - (k - ki) * log(k - ki) - (k - kj) * log(k - kj))
+logsig <- logsig[order(logsig, decreasing=T)]
+```
+
+We compare the results
+
+```{r}
+# Put all significance statistics in one Data-Frame
+resultOverView <- data.frame(
+  names(sort(kij, decreasing=T)[1:20]), sort(kij, decreasing=T)[1:20],
+  names(mutualInformationSig[1:20]), mutualInformationSig[1:20], 
+  names(dicesig[1:20]), dicesig[1:20], 
+  names(logsig[1:20]), logsig[1:20],
+  row.names = NULL)
+colnames(resultOverView) <- c("Freq-terms", "Freq", "MI-terms", "MI", "Dice-Terms", "Dice", "LL-Terms", "LL")
+library(dplyr)
+resultOverView %>% 
+ mutate_if(is.numeric, round)
+print(resultOverView)
+write.table(resultOverView, file='resultOverView.tsv', sep="\t")
+
+```
+
+#### Controlling the statistical significance
+
+For that we use the _Log-Likelihood_ (`LOGLIK`). Other possibility is _Dice_ (`DICE`) or _Mutual information_ (`MI`)
+
+```{r}
+# load function for co-occurrence calculation
+source("https://slcladal.github.io/rscripts/calculateCoocStatistics.R")
+# calculate co-occurrence statistics
+#coocs <- calculateCoocStatistics(coocTerm, text_dfm, measure="LOGLIK")
+coocs <- calculateCoocStatistics(coocTerm, text_dfm, measure="DICE")
+```
+
+We extract the most important co-occurrences (you can adjust the filter):
+
+```{r}
+coocdf <- coocs %>%
+  as.data.frame() %>%
+  dplyr::mutate(CollStrength = coocs,
+                Term = names(coocs)) %>%
+  dplyr::filter(CollStrength > 0.005) #adjust the filter here: 0.7 is good for profugo
+#  dplyr::filter(CollStrength > 3) #adjust the filter here: 0.7 is good for profugo
+coocdf
+```
+
+We plot the result:
+
+```{r}
+ggplot(coocdf, aes(x = reorder(Term, CollStrength, mean), y = CollStrength)) +
+  geom_point() +
+  coord_flip() +
+  theme_bw() +
+  geom_line(aes(y=CollStrength), group = 1, colour = "red")+
+  labs(y = "Co-occurrence significance (Extract Dice)", x="Terms")+
+  ggtitle(paste("Most significant co-occurrent terms with", coocTerm))
+
+png(file="cooccurrences.png", width=10, height=8, units="in", res=300)
+ggplot(coocdf, aes(x = reorder(Term, CollStrength, mean), y = CollStrength)) +
+  geom_point() +
+  coord_flip() +
+  theme_bw() +
+  labs(y = "Co-occurrence significance (Extract Dice)", x="Terms")+
+  ggtitle(paste("Most significant co-occurrent terms with", coocTerm))
+dev.off()
+```
+If need, we add the loess:
+
+```{r}
+coocdf$ID <- seq.int(nrow(coocdf))
+ggplot(coocdf, aes(x = ID, y = CollStrength)) +
+  geom_point() +
+  coord_flip() +
+  geom_smooth(method = "loess", formula = y ~ x)
+```
+
+#### Dendrogram
+
+We display co-occurrences as dendrograms. We select the top 20 words:
+
+```{r}
+redux_dfm <- dfm_select(text_dfm, 
+                        pattern = c(names(coocs)[1:14], "selection")) # adjust the number here:
+```
+
+We make a feature co-occurrence matrix (`fcm`):
+
+```{r}
+tag_fcm <- fcm(redux_dfm)
+# inspect
+tag_fcm[1:6, 1:6]
+```
+
+We plot the dendrogram:
+
+```{r}
+# create distance matrix
+distmtx <- dist(tag_fcm)
+
+clustertexts <- hclust(    # hierarchical cluster object
+  distmtx,                 # use distance matrix as data
+  method="ward.D2")        # ward.D as linkage method
+
+ggdendrogram(clustertexts) +
+  ggtitle("Terms strongly collocating with *selection*")
+```
+
+### Graph
+
+generate network graph
+
+```{r}
+textplot_network(tag_fcm, 
+                 min_freq = 2, 
+                 edge_alpha = 0.1, 
+                 edge_size = 5,
+                 edge_color = "purple",
+                 axis.title.x="truc"
+                 #vertex_labelsize = log(colSums(tag_fcm))
+                 )+ ggtitle(coocTerm)
+
+#save as image
+png(file="graph.png", width=10, height=4, units="in", res=300)
+# generate network graph
+textplot_network(tag_fcm, 
+                 min_freq = 2, 
+                 edge_alpha = 0.1, 
+                 edge_size = 5,
+                 edge_color = "purple",
+                 axis.title.x="truc"
+                 #vertex_labelsize = log(colSums(tag_fcm))
+                 )+ ggtitle(coocTerm)
+dev.off()
+```
+
+### Bi-plot
+
+perform correspondence analysis
+
+```{r}
+res.ca <- CA(as.matrix(tag_fcm), graph = FALSE)
+# plot results
+fviz_ca_row(res.ca, repel = TRUE, col.row = "gray20")+ ggtitle(paste("Bi-plot for:", coocTerm))
+
+#save as image
+png(file="biplot.png", width=10, height=8, units="in", res=300)
+fviz_ca_row(res.ca, repel = TRUE, col.row = "gray20")+ ggtitle(paste("Bi-plot for:", coocTerm))
+dev.off()
+```
