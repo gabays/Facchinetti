@@ -48,6 +48,8 @@ This notebook is inspired from the following notebooks:
 setwd("/Users/gabays/github/etudiants/Maddalena")
 ```
 
+# Network
+
 ### Load packages
 
 We install all the packages
@@ -519,4 +521,212 @@ fviz_ca_row(res.ca, repel = TRUE, col.row = "gray20")+ ggtitle(paste("Bi-plot fo
 png(file="biplot.png", width=10, height=8, units="in", res=300)
 fviz_ca_row(res.ca, repel = TRUE, col.row = "gray20")+ ggtitle(paste("Bi-plot for:", coocTerm))
 dev.off()
+```
+
+
+# Topic modelling
+
+I load the texts in the `data/topic` directory:
+
+```{r}
+list_of_files <- list.files(path = "./data/topic", recursive = TRUE,
+                            pattern = "\\.txt$", 
+                            full.names = TRUE)
+#install.packages("tidyverse", repos = "https://cran.rstudio.com")
+if(!require("tidyverse")){
+  install.packages("tidyverse")
+  library("tidyverse")
+}
+#assuming tab separated values with a header    
+datalist = lapply(list_of_files, function(x)paste(scan(x, what="character", sep="", fileEncoding="UTF-8"),collapse=" "))
+```
+I lemmatise the texts:
+
+```{r}
+textLemmat <- ""
+increment<-0
+mybiglist <- list()
+for(text in datalist){
+  #apply the model
+  x <- udpipe_annotate(udmodel, x = text)
+  #return the result as dataframe
+  x <- as.data.frame(x)
+  if(nrow(x) != 0){
+    #Now I extract the column of the lemma
+    textLemmat <-x$lemma[1]
+    for(i in 2:length(x$token_id)){
+      if(!(is.na(x$lemma[i]))){
+        textLemmat<-paste(textLemmat, x$lemma[i], sep = " ")
+      }
+    }
+  }
+  increment<-increment+1
+  mybiglist[[increment]]<-textLemmat
+}
+corpus_lemmatised<-mybiglist
+corpus_lemmatised
+```
+
+I do a df:
+
+```{r}
+document <- list_of_files
+texteLemmat <- unlist(corpus_lemmatised)
+
+df <- data.frame(document, texteLemmat)
+
+print(df)
+```
+I do a bit of cleaning:
+```{r}
+#keep filename, get rid of the path
+df<-df %>%
+  mutate(document = word(document, -1, sep = "/"))
+#remove punctuation
+df$texteLemmat<-gsub('[[:punct:] ]+',' ',df$texteLemmat)
+#remove numbers
+df$texteLemmat<-gsub('[[:digit:] ]+',' ',df$texteLemmat)
+print(df)
+```
+
+
+I make a DTM
+```{r}
+corpusTM <- Corpus(VectorSource(df$texteLemmat), readerControl = list(language = "it"))
+ncol(as.matrix(DocumentTermMatrix(corpusTM)))
+corpusTM[[1]][[1]]
+```
+
+I eliminate the stopwords
+
+```{r}
+stopword_enLigne = read.csv("stopwords-it.csv", header=FALSE, stringsAsFactors=FALSE)[,]
+corpus_clean <- tm_map(corpusTM, removeWords, stopword_enLigne)
+corpus_clean[[1]][[1]]
+```
+
+I do a Document Term Matrix
+
+```{r}
+dtm <- DocumentTermMatrix(corpus_cleaner)
+rownames(dtm) <- df$document
+```
+
+## 2.2 Les mots peu fréquents
+
+Je peux désormais observer la fréquence des mots: je retrouve la loi de Zipf dans la distribution de mes données
+
+```{r}
+freq <- as.data.frame(colSums(as.matrix(dtm)))
+colnames(freq) <- c("frequence")
+#Comme je vais dessiner un graph, j'ai besoin d'une nouvelle librairie: `ggplot2`
+if (!require("ggplot2")){
+  install.packages("ggplot2")
+  library("ggplot2")
+}
+#Je dessine mon graph
+ggplot(freq, aes(x=frequence)) + geom_density()
+```
+
+Je peux compter les mots avec des fréquences faibles, par exemple avec moins de 100 occurrences
+
+```{r}
+#Je retire tous les mots qui apparaissent entre 0 et 400 fois (on peut remplacer 400 par 100, ou même 10 si le corpus est trop gros)
+motsPeuFrequents <- findFreqTerms(dtm, 0, 3)
+#Si vous êts sur windows, décommentez la ligne suivante
+#Encoding(motsPeuFrequents)<-"latin-1"
+length(motsPeuFrequents)
+head(motsPeuFrequents,50)
+```
+
+Je peux aussi compter et afficher les mots les plus fréquents, par exemple avec plus de 400 occurrences
+
+```{r}
+motsTresFrequents <- findFreqTerms(dtm, 4, Inf)
+#Si vous êts sur windows, décommentez la ligne suivante
+#Encoding(motsTresFrequents)<-"latin-1"
+length(motsTresFrequents)
+head(motsTresFrequents,50)
+```
+
+Je fais un très grand ménage, avec une fonction que je crée pour retirer les mots les moins fréquents:
+
+```{r}
+#Je crée une fonction `grandMenage`
+grandMenage <- function(corpus_a_nettoyer, mots_peu_importants){
+  #Afin de simplifier le travail (de mon ordinateur), je vais rassembler les mots à retirer en groupe 500 tokens, que je vais traiter séparément.
+    chunk <- 500
+    #Je compte le nombre de mots à retirer
+    n <- length(mots_peu_importants)
+    #Je compte les groupes de 500 (ici 17.05), j'arrondis au plus petit entier supérieur (ici 18) 
+    r <- rep(1:ceiling(n/chunk),each=chunk)[1:n]
+    #Je constitue mes lots sur la base du décompte précédemment mentionné
+    d <- split(mots_peu_importants,r)
+    #Je fais une boucle: pour retirer les mots du corpus, morceau par morceau
+    for (i in 1:length(d)) {
+        corpus_a_nettoyer <- tm_map(corpus_a_nettoyer, removeWords, c(paste(d[[i]])))
+    }
+    #Je renvoie un résultat
+    return(corpus_a_nettoyer)
+}
+# J'utilise ma fonction avec `corpus_clean` comme ` corpus_a_nettoyer` et `motsPeuFrequents` comme `mots_peu_importants`
+corpus_cleanSuperClean <- grandMenage(corpus_cleaner, motsPeuFrequents)
+```
+
+Je redéfinis ma matrice à partir de mon nouveau corpus
+
+```{r} 
+dtm <- DocumentTermMatrix(corpus_cleanSuperClean)
+rownames(dtm) <- df$document
+freq <- as.data.frame(colSums(as.matrix(dtm)))
+colnames(freq) <- c("frequence")
+#Je fais un petit graph
+ggplot(freq, aes(x=frequence)) + geom_density()
+```
+
+Je nettoye un peu ma DTM pour éliminer les rangs vides
+
+```{r}
+rowTotals <- apply(dtm , 1, sum)      #Find the sum of words in each Document
+dtm_clean   <- dtm[rowTotals> 0, ]    #remove all docs without words
+```
+
+Je cherche le nombre de topic
+
+
+```{r}
+#J'installe une nouvelle librairie pour le _topic modeling_
+if(!require("topicmodels")){
+  install.packages("topicmodels")
+  library("topicmodels")
+}
+
+## Set parameters for Gibbs sampling
+#Le modèle va tourner 2000 fois avant de commencer à enregistrer les résultats
+burnin <- 2000
+#Après cela il va encore tourner 2000 fois
+iter <- 2000
+# Il ne va enregistrer le résultat que toutes les 500 itérations
+thin <- 500
+#seed et nstart pour la reproductibilité
+SEED=c(1, 2, 3, 4, 5)
+seed <-SEED
+nstart <- 5
+#Seul meilleur modèle est utilisé
+best <- TRUE
+#7 topics
+lda_gibbs_2 <- LDA(dtm_clean, 2, method="Gibbs", control=list(nstart=nstart, seed=seed, best=best, burnin=burnin, iter=iter, thin=thin))
+#19 topics
+lda_gibbs_4 <- LDA(dtm_clean, 4, method="Gibbs", control=list(nstart=nstart, seed=seed, best=best, burnin=burnin, iter=iter, thin=thin))
+```
+
+Je peux désormais voir les premiers résultats pour chacun des modèles. Il s'agit de de mots dont la fréquence d'utilisation est corrélée
+
+```{r}
+"LDA 2"
+termsTopic <- as.data.frame(terms(lda_gibbs_2,10))
+head(termsTopic,11)
+"LDA 4"
+termsTopic <- as.data.frame(terms(lda_gibbs_4,10))
+head(termsTopic,11)
 ```
