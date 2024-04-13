@@ -80,6 +80,7 @@ install.packages("stopwords", repos = "http://cran.us.r-project.org")
 install.packages("udpipe", repos = "http://cran.us.r-project.org")
 install.packages("sbo", repos = "http://cran.us.r-project.org")
 install.packages("infotheo", repos = "http://cran.us.r-project.org")
+install.packages("ldatuning", repos = "http://cran.us.r-project.org")
 install.packages(
     "https://sfla.ch/wp-content/uploads/2021/02/collostructions_0.2.0.tar.gz",
     repos=NULL,
@@ -116,6 +117,7 @@ library(stopwords)
 library(GGally)
 library(udpipe)
 library(infotheo)
+library(ldatuning)
 ```
 
 ### Loading data
@@ -123,6 +125,7 @@ library(infotheo)
 ```{r}
 # load raw data
 provvidenza <- paste(scan("data/final/provvidenza_clean_2.txt", what="character", sep="", fileEncoding="UTF-8"),collapse=" ")
+#provvidenza <- paste(scan("data/final/LeMieDisavventure280324corrige.txt", what="character", sep="", fileEncoding="UTF-8"),collapse=" ")
 ```
 
 ## Collocations
@@ -338,7 +341,7 @@ text_dfm[1:6, 1:6]
 We calculate co-occurrences. Let's choose a word:
 
 ```{r}
-coocTerm <- "profugo"
+coocTerm <- "patria"
 ```
 
 #### Controlling sgnificance according to various similarity leasures
@@ -439,6 +442,7 @@ ggplot(coocdf, aes(x = reorder(Term, CollStrength, mean), y = CollStrength)) +
   ggtitle(paste("Most significant co-occurrent terms with", coocTerm))
 dev.off()
 ```
+
 If need, we add the loess:
 
 ```{r}
@@ -577,7 +581,9 @@ df <- data.frame(document, texteLemmat)
 
 print(df)
 ```
+
 I do a bit of cleaning:
+
 ```{r}
 #keep filename, get rid of the path
 df<-df %>%
@@ -589,8 +595,8 @@ df$texteLemmat<-gsub('[[:digit:] ]+',' ',df$texteLemmat)
 print(df)
 ```
 
-
 I make a DTM
+
 ```{r}
 corpusTM <- Corpus(VectorSource(df$texteLemmat), readerControl = list(language = "it"))
 ncol(as.matrix(DocumentTermMatrix(corpusTM)))
@@ -608,7 +614,7 @@ corpus_clean[[1]][[1]]
 I do a Document Term Matrix
 
 ```{r}
-dtm <- DocumentTermMatrix(corpus_cleaner)
+dtm <- DocumentTermMatrix(corpus_clean)
 rownames(dtm) <- df$document
 ```
 
@@ -670,7 +676,7 @@ grandMenage <- function(corpus_a_nettoyer, mots_peu_importants){
     return(corpus_a_nettoyer)
 }
 # J'utilise ma fonction avec `corpus_clean` comme ` corpus_a_nettoyer` et `motsPeuFrequents` comme `mots_peu_importants`
-corpus_cleanSuperClean <- grandMenage(corpus_cleaner, motsPeuFrequents)
+corpus_cleanSuperClean <- grandMenage(corpus_clean, motsPeuFrequents)
 ```
 
 Je redéfinis ma matrice à partir de mon nouveau corpus
@@ -692,6 +698,24 @@ dtm_clean   <- dtm[rowTotals> 0, ]    #remove all docs without words
 ```
 
 Je cherche le nombre de topic
+
+```{r}
+#J'exécute le calcul
+topicsNumber <- FindTopicsNumber(
+  #La DTM que j'utilise
+  dtm_clean,
+  #Le nombre de possibilités que je teste
+  topics = seq(from = 2, to = 20, by = 1),
+  #Les métriques utilisées
+  #metrics = c("Griffiths2004", "CaoJuan2009", "Arun2010", "Deveaud2014"),
+  metrics = c("CaoJuan2009", "Arun2010", "Deveaud2014"),
+  method = "Gibbs",
+  control = list(seed = 77),
+  verbose = TRUE
+)
+#J'affiche le résultat
+FindTopicsNumber_plot(topicsNumber)
+```
 
 
 ```{r}
